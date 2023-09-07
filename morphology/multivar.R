@@ -547,16 +547,4 @@ v6 <- ggplot(pc.load.sub, aes(x = PC2, y = char, label = PC1.r), color=col) +
 tiff("broncho_pca_loadings_combined.tif", res=300, width = 10, height = 15, unit="in")
 ggarrange(v1, v2, v3, v4, v5, v6, ncol =2, nrow=3, common.legend=TRUE, legend="none", align = "hv")
 dev.off()
-
-tiff("broncho_pca_loadings1.tif", res=300, width = 10, height = 5, unit="in")
-ggarrange(v1, v2, ncol =2, nrow=1, common.legend=TRUE, legend="none")
-dev.off()
-
-tiff("broncho_pca_loadings2.tif", res=300, width = 10, height = 5, unit="in")
-ggarrange(v3, v4, ncol =2, nrow=1, common.legend=TRUE, legend="none")
-dev.off()
-
-tiff("broncho_pca_loadings3.tif", res=300, width = 10, height = 5, unit="in")
-ggarrange(v5, v6, ncol =2, nrow=1, common.legend=TRUE, legend="none")
-dev.off()
 ```
