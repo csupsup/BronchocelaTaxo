@@ -6,7 +6,7 @@
 #Input - ultrametric tree (from Bayesian Inference) in nexus format
 #Analysis implemented in R
 
-#1.summarize tree and conver to .nex using treeannotator function from BEAST
+#1.summarize tree and convert to .nex using treeannotator function from BEAST
 cd /Applications/BEAST\ 2.7.4/bin 
 
 treeannotator -burnin 1000 -heights mean Bronchocela_88ND2_BI.trees Bronchocela_88ND2_BI.nex
