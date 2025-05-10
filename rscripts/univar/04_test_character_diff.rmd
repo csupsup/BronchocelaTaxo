@@ -1,0 +1,431 @@
+---
+title: "Bronchocela Morphology - Test Differences in Characters"
+author: "Christian Supsup"
+date: "13 March 2025"
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+indent: no
+---
+```{r setup, include=FALSE, message=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(knitr)
+```
+
+**Load required packages/functions**
+```{r load pkgs}
+rm(list = ls())
+
+## Load packages
+library(psych)
+library(Rmisc)
+library(ggplot2)
+library(dplyr)
+library(car)
+library(FSA)
+
+## Load our custom scripts from https://github.com/csupsup/morphR
+library(morphR)
+
+```
+
+**Test the character differences in female data**
+```{r female.char.diff}
+## Prepare data
+df.data.raw <- read.csv("data/bronchocela_morph_13March2025.csv")
+df.data.sub <- subset(df.data.raw, select = c(6,11,12:35))
+names(df.data.sub )[1] <- "Pop"
+df.data.sub  <- df.data.sub [order(df.data.sub $Pop),]
+
+## Remove populations with <4 individuals
+df.data.sub  <- remove_pop(df.data.sub, grp = "Pop", threshold = 4)
+
+## Correct body size measurements
+df.mens.data <- subset(df.data.sub, select = c(1,3:16))
+df.mens.data <- adjust_morph(df.mens.data , type = "multi_pop")
+
+## Combine corrected measurements with meristic
+df.mens.data <- cbind(df.mens.data[, 1], df.data.sub$Sex, df.mens.data[, -1])
+colnames(df.mens.data)[1] <- "Pop"
+colnames(df.mens.data)[2] <- "Sex"
+df.comb <- cbind(df.mens.data, df.data.sub[17:26])
+
+## Remove outliers per pop
+df.comb  <- remove_outliers(df.comb, char = "SVL", grp = "Pop", q1 = 0.25, q3 = 0.75)
+
+## Filter female data
+df.f <- df.comb[df.comb$Sex == "f",]
+df.f$Sex <- NULL
+
+## Get data summary
+results <- summarize_morph(df.f)
+
+head(results)
+
+## Write summary data
+write.csv(results, "results/female_data_summary.csv", row.names = FALSE)
+
+## Create directories for Tukey and Dunn tests outputs
+mk.dir <- c("results/tk_female", "results/dn_female")
+for (dir in mk.dir) {
+  if (dir.exists(dir)) {
+    unlink(dir, recursive = TRUE)
+  }
+  dir.create(dir)
+}
+
+## Perform ANOVA for characters with equal variance
+## Remove characters with unequal variance from Levene's test
+sig.morphs.f <- readLines("results/levene_sig_morphs_f.txt")
+
+df <- df.f
+chars <- sig.morphs.f
+df.eqvar <- df[, !(names(df) %in% chars)]
+
+## Perform ANOVA and Tukey test
+## Tukey test is performed only if pvalue is significant
+results <- anova_tukey(df.eqvar, grp = "Pop", write.tk = TRUE, dir = "results/tk_female/")
+
+head(results$aov_summary)
+
+write.csv(results$aov_summary, "results/female_aov_results.csv")
+
+## Perform Kruskal-Wallis on characters with unequal variance
+## Retain only these characters and exlude the rest
+df <- df.f
+chars <- c("Pop", sig.morphs.f)
+df.unvar <- df[, chars]
+
+results <- kw_dunn(df.unvar, grp = "Pop", write.dunn = TRUE, dir = "results/dn_female/")
+
+## Write results to a CSV file
+write.csv(results$kruskal_summary, "results/female_kruskal_results.csv")
+
+## Post processing of p-values
+pval <- clean_pvals(tk.dir = "results/tk_female", dn.dir = "results/dn_female", 
+          output.file = NULL, asterisk = TRUE)
+
+## Arrange columns using the cutom script "arrange_columns"
+col.names <- c("SVL", "TD", "OD", "HW", "HD", "HL", "HdL", "FbL", "FtL", "HbL", "FnsH",
+               "SnsH", "FnsW", "SnsW", "LbS", "DS", "UoPV", "PoPV", "SL", "IL",
+               "SlF3", "SlT4", "NS", "CS")
+
+pval <- arrange_cols(pval, col.names = col.names)
+
+write.csv(pval, "results/phoc_pval_female.csv")
+
+pval <- clean_pvals(tk.dir = "results/tk_female", dn.dir = "results/dn_female", 
+          output.file = NULL, asterisk = FALSE)
+
+write.csv(pval, "results/val_phoc_pval_female.csv", row.names = FALSE)
+
+## Independently test tail data
+## Prepare data
+broncho.tail <- read.csv('data/bronchocela_tailmorph_25March2025.csv')
+df <- broncho.tail[broncho.tail$Sex=="f",]
+df <- subset(df, select = c(6,11:26))
+names(df)[1] <- "Pop"
+df  <-  df[order(df$Pop),]
+
+## Remove populations with <4 individuals
+df  <- remove_pop(df, grp = "Pop", threshold = 4)
+
+## Remove outliers
+df <- remove_outliers(data = df, char = "TL", grp = "Pop", q1 = 0.25, q3 = 0.75)
+
+## Correct measurements
+df$Sex <- NULL
+df <- adjust_morph(df, type = "multi_pop") 
+
+## Get data summary
+tail.sum <- describeBy(df$TL, group = df$Pop, mat = TRUE)
+head(tail.sum)
+
+## Write results
+write.csv(tail.sum, "results/tail_female.sum.csv")
+
+## Perform Levene's test
+df$Pop <- as.factor(df$Pop)
+levene.res <- leveneTest(TL ~ Pop, data = df)
+levene.res
+
+## Perform ANOVA 
+aov.results <- aov(TL ~ Pop, data = df)
+
+summary(aov.results)
+
+## Perform Tukey test
+tukey.result <- TukeyHSD(aov.results)
+tukey.table <- as.data.frame(tukey.result[1])
+tukey.table$Pop.p.adj <- round(tukey.table$Pop.p.adj, 3)
+tukey.table$significance <- ifelse(tukey.table$Pop.p.adj < 0.05, "*", "")
+tukey.table$p.value <- paste(tukey.table$Pop.p.adj, tukey.table$significance)
+tukey.table$Comparison <- rownames(tukey.table)
+rownames(tukey.table) <- NULL
+
+## Create directory for TL results
+dir.create("results/tl_pval")
+
+## Write results
+write.csv(tukey.table, "results/tl_pval/tk_TL_female.csv")
+```
+
+**Test the character differences in male data**
+```{r male.char.diff}
+## Filter male data
+df.m <- df.comb[df.comb$Sex == "m",]
+df.m$Sex <- NULL
+
+## Get data summary
+results <- summarize_morph(df.m)
+
+head(results)
+
+## Write summary data
+write.csv(results, "results/male_data_summary.csv")
+
+## Create directories for Tukey and Dunn tests outputs
+mk.dir <- c("results/tk_male", "results/dn_male")
+for (dir in mk.dir) {
+  if (dir.exists(dir)) {
+    unlink(dir, recursive = TRUE)
+  }
+  dir.create(dir)
+}
+
+## Perform ANOVA for characters with equal variance
+## Remove characters with unequal variance from Levene's test
+sig.morphs.m <- readLines("results/levene_sig_morphs_m.txt")
+
+df <- df.m       
+chars <- sig.morphs.m 
+df.eqvar <- df[, !(names(df) %in% chars)]
+
+results <- anova_tukey(df.eqvar, grp = "Pop", write.tk = TRUE, dir = "results/tk_male/")
+
+head(results$aov_summary)
+
+write.csv(results$aov_summary, "results/male_aov_results.csv")
+
+## Perform Kruskal-Wallis on characters with unequal variance
+## Retain only these characters and exlude the rest
+df <- df.m                      
+chars <- c("Pop", sig.morphs.m) 
+df.unvar <- df[, chars]
+
+results <- kw_dunn(df.unvar, grp = "Pop", write.dunn = TRUE, dir = "results/dn_male/")
+
+head(results$kruskal_summary)
+
+# Write the results to a CSV file
+write.csv(results$kruskal_summary, "results/male_kruskal_results.csv")
+
+## Post processing of p-values
+pval <- clean_pvals(tk.dir = "results/tk_male/", dn.dir = "results/dn_male/", 
+          output.file = NULL, asterisk = TRUE) # Asterisk will be added in significant values
+
+## Arrange columns using the cutom script "arrange_columns"
+col.names <- c("SVL", "TD", "OD", "HW", "HL", "HdL", "FbL", "FtL", "HbL", "FnsH",
+               "SnsH", "FnsW", "SnsW", "LbS", "DS", "UoPV", "PoPV", "SL", "IL",
+               "SlF3", "SlT4", "NS", "CS")
+
+## HD was excluded, no significant results
+
+pval <- arrange_cols(pval, col.names = col.names)
+
+write.csv(pval, "results/phoc_pval_male.csv")
+
+pval <- clean_pvals(tk.dir = "results/tk_male/", dn.dir = "results/dn_male/", 
+          output.file = NULL, asterisk = FALSE)
+
+write.csv(pval, "results/val_phoc_pval_male.csv", row.names = FALSE)
+
+## Independently test tail data
+## Prepare data
+broncho.tail <- read.csv('data/bronchocela_tailmorph_25March2025.csv')
+df <- broncho.tail[broncho.tail$Sex=="m",]  # change male data
+df <- subset(df, select = c(6,11:26))
+names(df)[1] <- "Pop"
+df  <-  df[order(df$Pop),]
+
+## Remove populations with <4 individuals
+df <- remove_pop(df, grp = "Pop", threshold = 4)
+
+## Correct measurements
+df$Sex <- NULL
+df <- adjust_morph(df, type = "multi_pop") 
+
+## Remove outliers
+df <- remove_outliers(data = df, char = "TL", grp = "Pop", q1 = 0.25, q3 = 0.75)
+
+## Get data summary
+tail.sum <- describeBy(df$TL, group = df$Pop, mat = TRUE)
+head(tail.sum)
+
+## Write results
+write.csv(tail.sum, "results/tail_male.sum.csv")
+
+## Perform Levene's test
+df$Pop <- as.factor(df$Pop)
+levene.res <- leveneTest(TL ~ Pop, data = df)
+levene.res
+
+## Perform ANOVA 
+aov.results <- aov(TL ~ Pop, data = df)
+
+summary(aov.results)
+
+## Perform Tukey test
+tukey.result <- TukeyHSD(aov.results)
+tukey.table <- as.data.frame(tukey.result[1])
+tukey.table$Pop.p.adj <- round(tukey.table$Pop.p.adj, 3)
+tukey.table$significance <- ifelse(tukey.table$Pop.p.adj < 0.05, "*", "")
+tukey.table$p.value <- paste(tukey.table$Pop.p.adj, tukey.table$significance)
+tukey.table$Comparison <- rownames(tukey.table)
+rownames(tukey.table) <- NULL
+
+## Write results
+write.csv(tukey.table, "results/tl_pval/tk_TL_male.csv")
+```
+
+**Test the character differences using combined data**
+```{r combined.data}
+## Use all data
+df <- df.comb
+df $Sex <- NULL
+
+## Get data summary
+results <- summarize_morph(df)
+
+head(results)
+
+## Write summary data
+write.csv(results, "results/comb_data_summary.csv")
+
+## Create directories for Tukey and Dunn tests outputs
+mk.dir <- c("results/tk_comb", "results/dn_comb")
+for (dir in mk.dir) {
+  if (dir.exists(dir)) {
+    unlink(dir, recursive = TRUE)
+  }
+  dir.create(dir)
+}
+
+## Perform ANOVA for characters with equal variance
+## Remove characters with unequal variance from Levene's test
+sig.morphs.comb <- readLines("results/levene_sig_morphs_comb.txt")
+
+df <- df
+chars <- sig.morphs.comb 
+df.eqvar <- df[, !(names(df) %in% chars)]
+
+results <- anova_tukey(df.eqvar, grp = "Pop", write.tk = TRUE, dir = "results/tk_comb/")
+
+head(results$aov_summary)
+
+write.csv(results$aov_summary, "results/comb_aov_results.csv")
+
+## Perform Kruskal-Wallis on characters with unequal variance
+## Retain only these characters and exlude the rest
+df <- df.comb           
+chars <- c("Pop", sig.morphs.comb) 
+df.unvar <- df[, chars]
+
+results <- kw_dunn(df.unvar, grp = "Pop", write.dunn = TRUE, dir = "results/dn_comb/")
+
+head(results$kruskal_summary)
+
+# Write the results to a CSV file
+write.csv(results$kruskal_summary, "results/comb_kruskal_results.csv")
+
+## Post processing of p-values
+pval <- clean_pvals(tk.dir = "results/tk_comb/", dn.dir = "results/dn_comb/", 
+          output.file = NULL, asterisk = TRUE) # Asterisk will be added in significant values
+
+## Arrange columns using the cutom script "arrange_columns"
+col.names <- c("SVL", "TD", "OD", "HW", "HD", "HL", "HdL", "FbL", "FtL", "HbL", "FnsH",
+               "SnsH", "FnsW", "SnsW", "LbS", "DS", "UoPV", "PoPV", "SL", "IL",
+               "SlF3", "SlT4", "NS", "CS")
+
+pval <- arrange_cols(pval, col.names = col.names)
+
+write.csv(pval, "results/phoc_pval_comb.csv")
+
+pval <- clean_pvals(tk.dir = "results/tk_comb/", dn.dir = "results/dn_comb/", 
+          output.file = NULL, asterisk = FALSE)
+
+write.csv(pval, "results/val_phoc_pval_comb.csv", row.names = FALSE)
+
+## Independently test tail data
+## Prepare data
+broncho.tail <- read.csv('data/bronchocela_tailmorph_25March2025.csv')
+df <- subset(broncho.tail, select = c(6,11:26))
+names(df)[1] <- "Pop"
+df  <-  df[order(df$Pop),]
+
+## Remove populations with <4 individuals
+df <- remove_pop(df, grp = "Pop", threshold = 4)
+
+## Correct measurements
+df$Sex <- NULL
+df <- adjust_morph(df, type = "multi_pop")
+
+## Remove outliers
+df <- remove_outliers(data = df, char = "TL", grp = "Pop", q1 = 0.25, q3 = 0.75)
+
+## Get data summary
+tail.sum <- describeBy(df$TL, group = df$Pop, mat = TRUE)
+head(tail.sum)
+
+## Write results
+write.csv(tail.sum, "results/tail_comb.sum.csv")
+
+## Perform Levene's test
+df$Pop <- as.factor(df$Pop)
+levene.res <- leveneTest(TL ~ Pop, data = df)
+levene.res
+
+## Perform Kruskal-Wallis test
+kruskal.result <- kruskal.test(TL ~ Pop, data = df)
+
+## Perform Dunn test 
+dunn.result <- dunnTest(df$TL, df$Pop, method = "bonferroni")
+dunn.table <- as.data.frame(dunn.result$res)
+dunn.table$p.adj <- round(dunn.table$P.adj, 3)
+dunn.table$significance <- ifelse(dunn.table$p.adj < 0.05, "*", "")
+dunn.table$p.value <- paste(dunn.table$p.adj, dunn.table$significance)
+
+## Write resutls
+write.csv(dunn.table, "results/tl_pval/dn_TL_comb.csv")
+
+## Get TL/SVL ratios for species (not population)
+df$Pop <- gsub("Luzon|Lubang|Romblon|West Visayas", "B. marmorata", df$Pop)
+df$Pop <- gsub("Mindoro", "B. carestiai", df$Pop)
+df$Pop <- gsub("Palawan", "B. mallarii", df$Pop)
+df$Pop <- gsub("Mindanao", "B. philippina", df$Pop)
+df$Pop <- gsub("Borneo", "B. cristatella s.l. (Borneo)", df$Pop)
+df$Pop <- gsub("Sumatra", "B. cristatella s.l. (Sumatra)", df$Pop)
+df$Pop <- gsub("Moluccas", "B. cristatella s.l. (Moluccas)", df$Pop)
+
+pop.order <- c("B. carestiai", "B. mallarii", "B. marmorata", "B. philippina", 
+                "B. cristatella s.l. (Borneo)", "B. cristatella s.l. (Moluccas)", "B. cristatella s.l. (Sumatra)")
+df$Pop <- factor(df$Pop, levels = pop.order)
+
+ratio <- summarize_ratio(df, char.as.num = "TL", char.as.den = "SVL", grp = "Pop")
+
+head(ratio)
+
+## Write to a csv
+write.csv(ratio, "results/ratio_tl_svl.csv")
+
+box <- plot_ratio_box(df, char.as.num = "TL", char.as.den = "SVL", grp = "Pop", 
+ y.title = "Tail/\nSnout-Vent Length")
+
+box
+
+## Merge combined, female, and male post-hoc pvalues using the combine_pval function
+pval <- comb.pval <- combine_pvals("results/tl_pval/")
+
+write.csv(pval, "results/tail_combined_pval.csv")
+```

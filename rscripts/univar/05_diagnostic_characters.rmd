@@ -1,0 +1,343 @@
+---
+title: "Bronchocela Morphology - Diagnostic Characters"
+author: "Christian Supsup"
+date: "13 March 2025"
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+indent: no
+---
+```{r setup, include=FALSE, message=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(knitr)
+```
+
+**Load required packages/functions**
+```{r load pkgs}
+## Load packages
+library(psych)
+library(patchwork)
+library(grid)
+library(ggplot2)
+## Load our custom scripts from https://github.com/csupsup/morphR
+library(morphR)
+```
+**Test differences on diagnostic characters**
+```{r test diag}
+## Read data
+df.raw <- read.csv("data/bronchocela_morph_13March2025.csv")
+df.sub <- subset(df.raw, select = c(6,11,12:35))
+names(df.sub )[1] <- "Pop"
+df.sub  <- df.sub [order(df.sub $Pop),]
+
+head(df.sub )
+
+## Replace population label with species name
+df.rep <- df.sub 
+df.rep$Pop <- gsub("Luzon|Lubang|Romblon|West Visayas", "B. marmorata", df.rep$Pop)
+df.rep$Pop <- gsub("Mindoro", "B. carestiai", df.rep$Pop)
+df.rep$Pop <- gsub("Palawan", "B. mallarii", df.rep$Pop)
+df.rep$Pop <- gsub("Mindanao", "B. philippina", df.rep$Pop)
+df.rep$Pop <- gsub("Borneo", "B. cristatella s.l. (Borneo)", df.rep$Pop)
+df.rep$Pop <- gsub("Sumatra", "B. cristatella s.l. (Sumatra)", df.rep$Pop)
+df.rep$Pop <- gsub("Moluccas", "B. cristatella s.l. (Moluccas)", df.rep$Pop)
+
+## Correct body measurements
+df.mens <- subset(df.rep, select = c(1,3:16))
+df.mens.cor <- adjust_morph(df.mens, type = "multi_pop")
+
+## Combine corrected body measurements and meristic data
+df.sp <- cbind(df.mens.cor, df.rep[17:26])
+
+## Remove outliers using interquartile range method (lower quartile = 25%, upper quartile = 75%)
+df.sp <- remove_outliers(df.sp, char = "SVL", grp = "Pop") # Use SVL as reference and apply per population
+
+## Get diagnostic characters
+col.names <- c("Pop", "SVL", "TD", "HL", "HdL", "FbL", 
+  "FtL", "HbL", "FnsH", "DS", "PoPV", "SlF3", "CS")
+
+broncho.diag <- df.sp[, col.names]
+
+## Add ratio column
+broncho.diag$FnsH.TD.ratio <- broncho.diag$FnsH/broncho.diag$TD
+
+## Perform Levene's test accross populations using all characters
+results <- levene_all(broncho.diag, grp = "Pop")
+
+head(results)
+
+## Filter all morphs with significant resutls
+sig.morphs <- results[results$significance == "*", "Morph"]
+
+sig.morphs
+
+## Create directories for Tukey and Dunn tests outputs
+mk.dir <- c("results/tk_sp", "results/dn_sp")
+for (dir in mk.dir) {
+  if (dir.exists(dir)) {
+    unlink(dir, recursive = TRUE)
+  }
+  dir.create(dir)
+}
+
+## Perform ANOVA for characters with equal variance
+## Remove characters with unequal variance from Levene's test
+df <- broncho.diag
+chars <- sig.morphs
+df.eqvar <- df[, !(names(df) %in% chars)]
+
+## Perform ANOVA and Tukey test
+## Tukey test is performed only if pvalue is significant
+results <- anova_tukey(df.eqvar, grp = "Pop", write.tk = TRUE, dir = "results/tk_sp/")
+
+head(results$aov_summary)
+
+write.csv(results$aov_summary, "results/sp_aov_results.csv")
+
+## Perform Kruskal-Wallis on characters with unequal variance
+## Retain only these characters and exlude the rest
+df <- broncho.diag
+chars <- c("Pop", sig.morphs)
+df.unvar <- df[, chars]
+
+results <- kw_dunn(df.unvar, grp = "Pop", write.dunn = TRUE, dir = "results/dn_sp/")
+
+## Write results to a CSV file
+write.csv(results$kruskal_summary, "results/sp_kruskal_results.csv")
+
+## Post processing of p-values
+pval <- clean_pvals(tk.dir = "results/tk_sp/", dn.dir = "results/dn_sp/", 
+          output.file = NULL, asterisk = TRUE)
+
+col.names <- c("SVL", "TD", "HL", "HdL", "FbL", 
+  "FtL", "HbL", "FnsH.TD.ratio", "DS", "PoPV", "SlF3", "CS")
+
+pval <- arrange_cols(pval, col.names = col.names)
+
+write.csv(pval, "results/phoc_pval_sp.csv")
+
+pval <- clean_pvals(tk.dir = "results/tk_sp", dn.dir = "results/dn_sp/", 
+          output.file = NULL, asterisk = FALSE)
+
+write.csv(pval, "results/val_phoc_pval_sp.csv", row.names = FALSE)
+```
+
+**Create plots for diagnostic characters**
+```{r, create plots, out.width = "50%"}
+df <- broncho.diag
+
+pop.order <- c("B. carestiai", "B. mallarii", "B. marmorata", "B. philippina", 
+                "B. cristatella s.l. (Borneo)", "B. cristatella s.l. (Moluccas)", "B. cristatella s.l. (Sumatra)")
+df$Pop <- factor(df$Pop, levels = pop.order)
+
+## SVL + FnsH/TD
+box1 <- ggplot(df, aes(x = Pop, y = SVL)) +
+            theme_classic() +
+            geom_boxplot(fill = "#5B8CB6") +
+            labs(title = "", x = "", y = "Snout-Vent Length") +
+            theme(axis.text = element_text(size = 15, color = "black"), 
+                    axis.title = element_text(size = 15, face ="bold"), 
+                    plot.title = element_blank(),
+                    legend.background = element_blank(),
+                    axis.text.x = element_blank(),
+                    #axis.ticks.x = element_blank(), 
+                    axis.text.y = element_text(size = 12),
+                    plot.margin = margin(0, 0, 0, 0),
+                    axis.title.x = element_blank())
+
+## Create a boxplot using the custom "ratio_boxplot" script
+box2 <- plot_ratio_box(df, char.as.num = "FnsH", char.as.den = "TD", grp = "Pop", 
+ y.title = "5th Nuchal Spine Height/\nTympanum Diameter")
+
+
+comb.plot <- box1 + box2 + 
+            plot_layout(ncol = 1, nrow = 2)
+
+pdf("results/svl_fnsh_td_ratio.pdf", width = 5, height = 9) 
+comb.plot 
+dev.off()
+
+png("results/svl_fnsh_td_ratio.png", res=300, width = 5, height = 9, unit="in")
+comb.plot
+dev.off()
+
+knitr::include_graphics("results/svl_fnsh_td_ratio.png")
+
+## HdL + HbL
+box1 <- ggplot(df, aes(x = Pop, y = FbL)) +
+            theme_classic() +
+            geom_boxplot(fill = "#5B8CB6") +
+            labs(title = "", x = "", y = "Forelimb Length") +
+            theme(axis.text = element_text(size = 15, color = "black"), 
+                    axis.title = element_text(size = 15, face ="bold"), 
+                    plot.title = element_blank(),
+                    legend.background = element_blank(),
+                    #axis.ticks.x = element_blank(),
+                    axis.text.x = element_blank(), 
+                    axis.text.y = element_text(size = 12),
+                    plot.margin = margin(1, 0, 0, 0),
+                    axis.title.x = element_blank())
+
+box2 <-  ggplot(df, aes(x = Pop, y = HbL)) +
+            theme_classic() +
+            geom_boxplot(fill = "#5B8CB6") +
+            labs(title = "", x = "", y = "Hindlimb Length") +
+            theme(axis.text = element_text(size = 15, color = "black"), 
+                    axis.title = element_text(size = 15, face ="bold"), 
+                    plot.title = element_blank(),
+                    legend.background = element_blank(),
+                    axis.text.x = element_text(angle = 50, hjust = 1), 
+                    axis.text.y = element_text(size = 12),
+                    plot.margin = margin(10, 0, 0, 0),
+                    axis.title.x = element_blank())
+
+comb.plot <- box1 + box2 + 
+            plot_layout(ncol = 1, nrow = 2)
+
+## Write plot
+pdf("results/fbl_hbl.pdf", width = 5, height = 9) 
+comb.plot 
+dev.off()
+
+## DS + PoPV
+box1 <- ggplot(df, aes(x = Pop, y = DS)) +
+            theme_classic() +
+            geom_boxplot(fill = "#5B8CB6") +
+            labs(title = "", x = "", y = "Dorsal Scales") +
+            theme(axis.text = element_text(size = 15, color = "black"), 
+                    axis.title = element_text(size = 15, face ="bold"), 
+                    plot.title = element_blank(),
+                    legend.background = element_blank(),
+                    axis.text.x = element_blank(),
+                    #axis.ticks.x = element_blank(), 
+                    axis.text.y = element_text(size = 12),
+                    plot.margin = margin(1, 0, 0, 0),
+                    axis.title.x = element_blank())
+
+box2 <-  ggplot(df, aes(x = Pop, y = PoPV)) +
+            theme_classic() +
+            geom_boxplot(fill = "#5B8CB6") +
+            labs(title = "", x = "", y = "Posteriorly Oriented\nParavertebrals") +
+            theme(axis.text = element_text(size = 15, color = "black"), 
+                    axis.title = element_text(size = 15, face ="bold"), 
+                    plot.title = element_blank(),
+                    legend.background = element_blank(),
+                    axis.text.x = element_text(angle = 50, hjust = 1), 
+                    axis.text.y = element_text(size = 12),
+                    plot.margin = margin(10, 0, 0, 0),
+                    axis.title.x = element_blank())
+
+comb.plot <- box1 + box2 + 
+            plot_layout(ncol = 1, nrow = 2)
+
+## Write plot
+pdf("results/ds_popv.pdf", width = 5, height = 9) 
+comb.plot 
+dev.off()
+
+## Plot female post-hoc test pvalues
+phoc.val <- read.csv("results/val_phoc_pval_female.csv", row.names = 1)
+
+## Arrange columns
+col.names <- c("SVL", "TD", "OD", "HW", "HD", "HL", "HdL", "FbL", "FtL", "HbL", "FnsH",
+                "SnsH", "FnsW", "SnsW", "LbS", "DS", "UoPV", "PoPV", "SL", "IL",
+                "SlF3", "SlT4", "NS", "CS")
+
+phoc.val <- phoc.val[, col.names]
+
+## Convert as matrix
+phoc.val <- as.matrix(phoc.val)
+
+#plot pheatmap
+m.phoc.map <- ComplexHeatmap::pheatmap(phoc.val, cluster_rows = F, cluster_cols = F,
+                         display_numbers = T, #cutree_rows = 4, 
+                         color = c("#6baed6", "#eff3ff"), breaks = c(0.000,0.04,1.0), 
+                         border_color = "black", number_color = "black",
+                         fontsize_number = 12, fontsize = 15, fontface = "bold", column_names_side = c("top"),
+                         angle_col = c("0"), heatmap_legend_param = list(title = "p-value", labels_gp = gpar(fontsize = 15), 
+                         title_gp = gpar(fontsize = 16, fontface = "bold")), cellwidth = 50, cellheight = 17)
+
+png("results/female.phoc.pheatmap.png", res=300, width = 21, height = 12, unit="in")
+m.phoc.map
+dev.off()
+
+knitr::include_graphics("results/female.phoc.pheatmap.png")
+
+## Plot male post-hoc test pvalues
+phoc.val <- read.csv("results/val_phoc_pval_male.csv", row.names = 1)
+
+## HD excluded
+col.names <- c("SVL", "TD", "OD", "HW", "HL", "HdL", "FbL", "FtL", "HbL", "FnsH",
+                "SnsH", "FnsW", "SnsW", "LbS", "DS", "UoPV", "PoPV", "SL", "IL",
+                "SlF3", "SlT4", "NS", "CS")
+
+phoc.val <- phoc.val[, col.names]
+
+phoc.val <- as.matrix(phoc.val)
+
+#plot pheatmap
+m.phoc.map <- ComplexHeatmap::pheatmap(phoc.val, cluster_rows = F, cluster_cols = F,
+                         display_numbers = T, #cutree_rows = 4, 
+                         color = c("#6baed6", "#eff3ff"), breaks = c(0.000,0.04,1.0), 
+                         border_color = "black", number_color = "black",
+                         fontsize_number = 12, fontsize = 15, fontface = "bold", column_names_side = c("top"),
+                         angle_col = c("0"), heatmap_legend_param = list(title = "p-value", labels_gp = gpar(fontsize = 15), 
+                         title_gp = gpar(fontsize = 16, fontface = "bold")), cellwidth = 50, cellheight = 17)
+
+png("results/male.phoc.pheatmap.png", res=300, width = 21, height = 12, unit="in")
+m.phoc.map
+dev.off()
+
+knitr::include_graphics("results/male.phoc.pheatmap.png")
+
+## Plot combined post-hoc test pvalues
+phoc.val <- read.csv("results/val_phoc_pval_comb.csv", row.names = 1)
+
+col.names <- c("SVL", "TD", "OD", "HW", "HD", "HL", "HdL", "FbL", "FtL", "HbL", "FnsH",
+                "SnsH", "FnsW", "SnsW", "LbS", "DS", "UoPV", "PoPV", "SL", "IL",
+                "SlF3", "SlT4", "NS", "CS")
+
+phoc.val <- phoc.val[, col.names]
+
+phoc.val <- as.matrix(phoc.val)
+
+#plot pheatmap
+m.phoc.map <- ComplexHeatmap::pheatmap(phoc.val, cluster_rows = F, cluster_cols = F,
+                         display_numbers = T, #cutree_rows = 4, 
+                         color = c("#6baed6", "#eff3ff"), breaks = c(0.000,0.04,1.0), 
+                         border_color = "black", number_color = "black",
+                         fontsize_number = 12, fontsize = 15, fontface = "bold", column_names_side = c("top"),
+                         angle_col = c("0"), heatmap_legend_param = list(title = "p-value", labels_gp = gpar(fontsize = 15), 
+                         title_gp = gpar(fontsize = 16, fontface = "bold")), cellwidth = 50, cellheight = 17)
+
+png("results/comb.phoc.pheatmap.png", res=300, width = 21, height = 12, unit="in")
+m.phoc.map
+dev.off()
+
+knitr::include_graphics("results/comb.phoc.pheatmap.png")
+
+## Plot species diagnostic character post-hoc test pvalues
+phoc.val <- read.csv("results/val_phoc_pval_sp.csv", row.names = 1)
+
+col.names <- c("SVL", "TD", "HL", "HdL", "FbL", "FtL", "HbL", "FnsH", "DS", "PoPV", "SlF3", "CS", "FnsH.TD.ratio")
+
+phoc.val <- phoc.val[, col.names]
+
+phoc.val <- as.matrix(phoc.val)
+
+#plot pheatmap
+m.phoc.map <- ComplexHeatmap::pheatmap(phoc.val, cluster_rows = F, cluster_cols = F,
+                         display_numbers = T, #cutree_rows = 4, 
+                         color = c("#6baed6", "#eff3ff"), breaks = c(0.000,0.04,1.0), 
+                         border_color = "black", number_color = "black",
+                         fontsize_number = 12, fontsize = 15, fontface = "bold", column_names_side = c("top"),
+                         angle_col = c("0"), heatmap_legend_param = list(title = "p-value", labels_gp = gpar(fontsize = 15), 
+                         title_gp = gpar(fontsize = 16, fontface = "bold")), cellwidth = 50, cellheight = 17)
+
+png("results/sp.phoc.pheatmap.png", res=300, width = 20, height = 9, unit="in")
+m.phoc.map
+dev.off()
+
+knitr::include_graphics("results/sp.phoc.pheatmap.png")
+```
