@@ -1,0 +1,137 @@
+---
+title: "Bronchocela Morphology - Normality and Homogeneity Test"
+author: "Christian Supsup"
+date: "13 March 2025"
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+indent: no
+---
+```{r setup, include=FALSE, message=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(knitr)
+```
+
+**Load required packages/functions**
+```{r load pkgs}
+## Load packages
+library(psych)
+library(Rmisc)
+library(ggplot2)
+library(dplyr)
+
+## Load our custom scripts from https://github.com/csupsup/MorphoTax
+library(MorphoTax)
+```
+
+**Test normality and homogeneity of variance in characters**
+```{r check norm and homo}
+## Prepare data
+df.data.raw <- read.csv("data/bronchocela_morph_13March2025.csv")
+df.data.sub <- subset(df.data.raw, select = c(6,11,12:35))
+names(df.data.sub )[1] <- "Pop"
+df.data.sub  <- df.data.sub [order(df.data.sub $Pop),]
+
+## Correct body size measurements
+df.mens.data <- subset(df.data.sub, select = c(1,3:16))
+df.mens.data <- adjust_morph(df.mens.data , type = "multi_pop")
+
+## Combine corrected measurements with meristic
+df.mens.data <- cbind(df.mens.data[, 1], df.data.sub$Sex, df.mens.data[, -1])
+colnames(df.mens.data)[1] <- "Pop"
+colnames(df.mens.data)[2] <- "Sex"
+df.comb <- cbind(df.mens.data, df.data.sub[17:26])
+
+## Remove outliers
+df.comb <- remove_outliers(df.comb, char = "SVL", grp = "Pop")
+
+## Filter female data
+df.f <- df.comb[df.comb$Sex == "f",]
+df.f$Sex <- NULL
+
+## Remove populations with <4 individuals
+df <- remove_pop(df.f, grp = "Pop", threshold = 4)
+
+## Perform Shapiro-Wilk test in all characters by population
+results <- shapiro_all(df, grp = "Pop")
+
+head(results)
+
+## Write results
+write.csv(results, "results/female_shapiro_results.csv")
+
+## Perform Levene's test accross populations using all characters
+results <- levene_all(df, grp = "Pop")
+
+head(results)
+
+## Write results
+write.csv(results, "results/female_levene_results.csv")
+
+## Filter all morphs with significant resutls
+sig.morphs.f <- results[results$significance == "*", "Morph"]
+
+sig.morphs.f
+
+writeLines(sig.morphs.f, "results/levene_sig_morphs_f.txt")
+
+## Filter male data
+df.m <- df.comb[df.comb$Sex == "m",]
+df.m$Sex <- NULL
+
+## Remove populations with <4 individuals
+df <- remove_pop(df.m, grp = "Pop", threshold = 4)
+
+results <- shapiro_all(df, grp = "Pop")
+
+head(results)
+
+## Write results
+write.csv(results, "results/male_shapiro_results.csv")
+
+# Perform Levene's test
+results <- levene_all(df, grp = "Pop")
+
+head(results)
+
+## Write results
+write.csv(results, "results/male_levene_results.csv")
+
+## Filter all morphs with significant resutls
+sig.morphs.m <- results[results$significance == "*", "Morph"]
+
+sig.morphs.m
+
+writeLines(sig.morphs.m, "results/levene_sig_morphs_m.txt")
+
+## Use all data (i.e., combined female and male data)
+df.comb <- df.comb
+df.comb$Sex <- NULL
+
+## Remove populations with <4 individuals
+df <- remove_pop(df.comb, grp = "Pop", threshold = 4)
+
+## Shapiro-Wilk test
+results <- shapiro_all(df, grp = "Pop")
+
+head(results)
+
+## Write results
+write.csv(results, "results/comb_shapiro_results.csv")
+
+# Perform Levene's test
+results <- levene_all(df, grp = "Pop")
+
+head(results)
+
+## Write results
+write.csv(results, "results/comb_levene_results.csv")
+
+## Filter all morphs with significant resutls
+sig.morphs.comb <- results[results$significance == "*", "Morph"]
+
+sig.morphs.comb
+
+writeLines(sig.morphs.comb, "results/levene_sig_morphs_comb.txt")
+```
